@@ -26,7 +26,7 @@ type YqHooks struct {
 	yq        []string
 }
 
-var encoder yqlib.Encoder = yqlib.NewJONEncoder(0)
+var encoder yqlib.Encoder = yqlib.NewJSONEncoder(0, false, false)
 var evaluator yqlib.Evaluator = yqlib.NewAllAtOnceEvaluator()
 
 func NewYqHook(defaults, overrides, merges yaml.Node, yqCmds []string) (YqHooks, error) {

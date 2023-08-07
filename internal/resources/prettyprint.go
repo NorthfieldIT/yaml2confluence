@@ -23,7 +23,7 @@ func init() {
 	leveled.SetLevel(logging.ERROR, "")
 	yqlib.GetLogger().SetBackend(leveled)
 
-	prettyJsonEncoder = yqlib.NewJONEncoder(4)
+	prettyJsonEncoder = yqlib.NewJSONEncoder(4, false, false)
 	// YamlPrinter = yqlib.NewPrinter(yqlib.NewYamlEncoder(indent, colorsEnabled, printDocSeparators, unwrapScalar), yqlib.NewSinglePrinterWriter(writer))
 }
 
@@ -39,7 +39,10 @@ func PrettyPrint(target RenderTarget, page *Page, w *os.File) {
 }
 
 func PrettyPrintYaml(node *yaml.Node, w io.Writer) {
-	printer := yqlib.NewPrinter(yqlib.NewYamlEncoder(4, shouldColorize(), true, false), yqlib.NewSinglePrinterWriter(w))
+	prefs := yqlib.NewDefaultYamlPreferences()
+	prefs.UnwrapScalar = false
+
+	printer := yqlib.NewPrinter(yqlib.NewYamlEncoder(4, shouldColorize(), prefs), yqlib.NewSinglePrinterWriter(w))
 
 	list, err := yqlib.NewAllAtOnceEvaluator().EvaluateNodes(".", node)
 	if err != nil {
@@ -50,7 +53,7 @@ func PrettyPrintYaml(node *yaml.Node, w io.Writer) {
 
 type Encoder interface {
 	SetIndent(string, string)
-	Encode(any) error
+	Encode(interface{}) error
 }
 
 func prettyPrintJson(obj orderedjson.Map, w *os.File) {

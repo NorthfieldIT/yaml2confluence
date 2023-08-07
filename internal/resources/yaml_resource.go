@@ -26,7 +26,7 @@ type YamlResource struct {
 	Json  string
 }
 
-var jsonEncoder yqlib.Encoder = yqlib.NewJONEncoder(0)
+var jsonEncoder yqlib.Encoder = yqlib.NewJSONEncoder(0, false, false)
 
 func NewYamlResource(path string, node *yaml.Node) *YamlResource {
 	setHeadComment(path, node)
