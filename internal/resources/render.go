@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/NorthfieldIT/yaml2confluence/internal/utils"
-	"github.com/hoisie/mustache"
+	"github.com/cbroglie/mustache"
 )
 
 type RenderTarget uint32
@@ -91,7 +91,8 @@ func (rt *RenderTools) RenderAll(pt *PageTree) {
 }
 
 func renderContent(p *Page, template string, header string, footer string) {
-	p.Content.Markup = mustache.Render(template, p.Resource.ToObject())
+	// TODO handle error
+	p.Content.Markup, _ = mustache.Render(template, p.Resource.ToObject())
 	if header != "" {
 		p.Content.Markup = header + "\n" + p.Content.Markup
 	}
