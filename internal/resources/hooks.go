@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
 	. "github.com/flant/libjq-go"
 	"github.com/flant/libjq-go/pkg/jq"
+	"github.com/mattn/go-zglob"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,6 +20,7 @@ type HookProcessor struct {
 	hooks            map[string]*Hook
 	kindHooks        map[string]*Hook
 	patternHooks     []*Hook
+	lsCache          *LsCache
 }
 
 type Hook struct {
@@ -28,20 +31,65 @@ type Hook struct {
 type HookConfig struct {
 	Target    string    `yaml:"target"`
 	Priority  int       `yaml:"priority"`
+	ListFiles ListFiles `yaml:"listFiles"`
 	Defaults  yaml.Node `yaml:"defaults"`
 	Overrides yaml.Node `yaml:"overrides"`
 	Merges    yaml.Node `yaml:"merges"`
+	YqWhile   string    `yaml:"yqWhile"`
 	Yq        []string  `yaml:"yq"`
 	Jq        []string  `yaml:"jq"`
 	Header    string    `yaml:"header"`
 	Footer    string    `yaml:"footer"`
 }
 
+type ListFiles struct {
+	EnvVar string `yaml:"envVar"`
+	Glob   string `yaml:"glob"`
+}
+
+func (lf ListFiles) isValid() bool {
+	return lf.EnvVar != "" && lf.Glob != ""
+}
+
 type HookSet struct {
 	Jq     []JqCommand
 	Yq     []YqHooks
+	Ls     Ls
 	Header string
 	Footer string
+}
+type LsCache struct {
+	store map[ListFiles]string
+}
+
+func (c *LsCache) Get(lf ListFiles) (string, bool) {
+	val, exists := c.store[lf]
+
+	return val, exists
+}
+
+func (c *LsCache) Set(lf ListFiles, data string) {
+	c.store[lf] = data
+}
+
+type Ls struct {
+	config ListFiles
+	cache  *LsCache
+}
+
+func (ls *Ls) Run() {
+	if !ls.config.isValid() {
+		return
+	}
+
+	if data, exists := ls.cache.Get(ls.config); exists {
+		os.Setenv(ls.config.EnvVar, data)
+		return
+	}
+
+	data := GlobYaml(ls.config.Glob)
+	ls.cache.Set(ls.config, data)
+	os.Setenv(ls.config.EnvVar, data)
 }
 
 type JqCommand struct {
@@ -74,6 +122,9 @@ func NewHookProcessor(hooksDir string, precompile bool) *HookProcessor {
 		shouldPrecompile: precompile,
 		hooks:            map[string]*Hook{},
 		kindHooks:        map[string]*Hook{},
+		lsCache: &LsCache{
+			store: map[ListFiles]string{},
+		},
 	}
 
 	hooks := append(loadHooks(hooksDir))
@@ -129,6 +180,11 @@ func (hp *HookProcessor) GetHookSet(kind string) HookSet {
 	footers := []string{}
 
 	for _, hook := range hp.GetHooks(kind) {
+		hookset.Ls = Ls{
+			config: hook.Config.ListFiles,
+			cache:  hp.lsCache,
+		}
+
 		for _, jq := range hook.Config.Jq {
 			jqCommand := JqCommand{Cmd: jq, Hook: hook}
 			if hp.shouldPrecompile {
@@ -141,7 +197,7 @@ func (hp *HookProcessor) GetHookSet(kind string) HookSet {
 			hookset.Jq = append(hookset.Jq, jqCommand)
 		}
 
-		yqHooks, err := NewYqHook(hook.Config.Defaults, hook.Config.Overrides, hook.Config.Merges, hook.Config.Yq)
+		yqHooks, err := NewYqHook(hook.Config.Defaults, hook.Config.Overrides, hook.Config.Merges, hook.Config.YqWhile, hook.Config.Yq)
 		if err != nil {
 			panic(err)
 		}
@@ -210,10 +266,10 @@ allows hooks to be defined as single value or an array
 
 jq: .user as $s | .user |= "mike"
 
-BECOMES
+# BECOMES
 
 jq:
-	- .user as $s | .user |= "mike"
+  - .user as $s | .user |= "mike"
 */
 func ensureArray(rootKey string, node *yaml.Node) {
 	content := node.Content[0].Content
@@ -227,4 +283,23 @@ func ensureArray(rootKey string, node *yaml.Node) {
 			break
 		}
 	}
+}
+
+func GlobYaml(glob string) string {
+	spaceDir := os.Getenv("SPACE_DIR")
+	matches, err := zglob.Glob(filepath.Join(spaceDir, glob))
+	if err != nil {
+		panic(err)
+	}
+
+	yamlLines := []string{}
+	for _, m := range matches {
+		path, err := filepath.Rel(spaceDir, m)
+		if err != nil {
+			panic(err)
+		}
+		yamlLines = append(yamlLines, fmt.Sprintf(" - %s", path))
+	}
+
+	return strings.Join(yamlLines, "\n")
 }

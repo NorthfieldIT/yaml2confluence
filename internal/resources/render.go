@@ -50,6 +50,8 @@ func NewRenderTools(dirProps utils.DirectoryProperties, precompileJqHooks bool) 
 func (rt *RenderTools) RenderTo(target RenderTarget, p *Page) {
 	hookset := rt.hooks.GetHookSet(p.Resource.Kind)
 
+	hookset.Ls.Run()
+
 	switch {
 	case target >= YAML:
 		for _, yq := range hookset.Yq {

@@ -23,13 +23,14 @@ type YqHooks struct {
 	defaults  string
 	overrides string
 	merges    string
+	while     string
 	yq        []string
 }
 
 var encoder yqlib.Encoder = yqlib.NewJSONEncoder(0, false, false)
 var evaluator yqlib.Evaluator = yqlib.NewAllAtOnceEvaluator()
 
-func NewYqHook(defaults, overrides, merges yaml.Node, yqCmds []string) (YqHooks, error) {
+func NewYqHook(defaults, overrides, merges yaml.Node, while string, yqCmds []string) (YqHooks, error) {
 	mergeNodes := map[string]yaml.Node{
 		"defaults":  defaults,
 		"overrides": overrides,
@@ -54,6 +55,7 @@ func NewYqHook(defaults, overrides, merges yaml.Node, yqCmds []string) (YqHooks,
 		defaults:  commands["defaults"],
 		overrides: commands["overrides"],
 		merges:    commands["merges"],
+		while:     while,
 		yq:        yqCmds,
 	}
 
@@ -62,19 +64,66 @@ func NewYqHook(defaults, overrides, merges yaml.Node, yqCmds []string) (YqHooks,
 
 func (yh YqHooks) Run(node *yaml.Node) (*yaml.Node, error) {
 	newNode := node
+	var err error
 
-	for _, command := range append([]string{yh.defaults, yh.overrides, yh.merges}, yh.yq...) {
-		if command != "" {
-			list, err := evaluator.EvaluateNodes(command, newNode)
-			if err != nil {
-				return nil, err
+	commands := []string{yh.defaults, yh.overrides, yh.merges}
+	if yh.while == "" {
+		commands = append(commands, yh.yq...)
+	}
+
+	for _, command := range commands {
+		newNode, err = runYqCommand(command, newNode)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if yh.while != "" {
+	out:
+		for i := 0; i < 10; i++ {
+			if !whileCondition(yh.while, newNode) {
+				break out
 			}
-			newNode = list.Front().Value.(*yqlib.CandidateNode).Node
+
+			for _, command := range yh.yq {
+				newNode, err = runYqCommand(command, newNode)
+				if err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 
 	return newNode, nil
 }
+
+func whileCondition(command string, node *yaml.Node) bool {
+	boolNode, err := runYqCommand(command, node)
+	if err != nil {
+		return false
+	}
+
+	if boolNode.Tag != "!!bool" {
+		return false
+	}
+
+	return boolNode.Value == "true"
+}
+
+func runYqCommand(command string, node *yaml.Node) (*yaml.Node, error) {
+	if command != "" {
+		list, err := evaluator.EvaluateNodes(command, node)
+		if err != nil {
+			return nil, err
+		}
+		newNode := list.Front().Value.(*yqlib.CandidateNode).Node
+
+		return newNode, nil
+	}
+
+	return node, nil
+}
+
 func nodeToYqCommand(node yaml.Node, overide bool, merge bool) (string, error) {
 	setExpressions := []string{}
 	for i := range node.Content {
